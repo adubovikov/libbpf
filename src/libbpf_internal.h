@@ -18,6 +18,16 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <libelf.h>
+
+/*
+ * elftoolchain's libelf declares its own elf_open(int fd), which conflicts
+ * with libbpf's internal elf_open(const char *, struct elf_fd *).
+ * Rename libbpf's version to avoid the clash.
+ */
+#ifdef USE_ELFTOOLCHAIN
+#define elf_open libbpf__elf_open
+#endif
+
 #include "relo_core.h"
 
 /* Android's libc doesn't support AT_EACCESS in faccessat() implementation
