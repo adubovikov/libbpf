@@ -74,6 +74,69 @@
 #define ELF64_ST_VISIBILITY(o) ((o) & 0x03)
 #endif
 
+/*
+ * Elftoolchain's libelf (BSD) does not provide gelf_getversym(),
+ * gelf_getverdef(), gelf_getverdaux() or their associated GElf types.
+ * Provide minimal compat implementations so libbpf can be built with
+ * either elfutils or elftoolchain.
+ *
+ * Detection: elfutils defines ELF_T_GNUHASH; elftoolchain does not.
+ */
+#ifdef USE_ELFTOOLCHAIN
+
+#include <string.h>
+
+typedef Elf64_Versym  GElf_Versym;
+typedef Elf64_Verdef  GElf_Verdef;
+typedef Elf64_Verdaux GElf_Verdaux;
+
+static inline GElf_Versym *
+gelf_getversym(Elf_Data *data, int ndx, GElf_Versym *dst)
+{
+	GElf_Versym *src;
+
+	if (!data || !dst)
+		return NULL;
+	if ((ndx + 1) * (int)sizeof(GElf_Versym) > (int)data->d_size)
+		return NULL;
+
+	src = (GElf_Versym *)((char *)data->d_buf + ndx * sizeof(GElf_Versym));
+	*dst = *src;
+	return dst;
+}
+
+static inline GElf_Verdef *
+gelf_getverdef(Elf_Data *data, int offset, GElf_Verdef *dst)
+{
+	GElf_Verdef *src;
+
+	if (!data || !dst)
+		return NULL;
+	if (offset < 0 || (size_t)offset + sizeof(GElf_Verdef) > data->d_size)
+		return NULL;
+
+	src = (GElf_Verdef *)((char *)data->d_buf + offset);
+	*dst = *src;
+	return dst;
+}
+
+static inline GElf_Verdaux *
+gelf_getverdaux(Elf_Data *data, int offset, GElf_Verdaux *dst)
+{
+	GElf_Verdaux *src;
+
+	if (!data || !dst)
+		return NULL;
+	if (offset < 0 || (size_t)offset + sizeof(GElf_Verdaux) > data->d_size)
+		return NULL;
+
+	src = (GElf_Verdaux *)((char *)data->d_buf + offset);
+	*dst = *src;
+	return dst;
+}
+
+#endif /* USE_ELFTOOLCHAIN */
+
 #define JUMPTABLES_SEC ".jumptables"
 
 #define BTF_INFO_ENC(kind, kind_flag, vlen) \

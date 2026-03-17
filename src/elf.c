@@ -14,12 +14,24 @@
  * the symbol is hidden and can only be seen when referenced using an
  * explicit version number. This is a GNU extension.
  */
+#ifndef VERSYM_HIDDEN
 #define VERSYM_HIDDEN	0x8000
+#endif
 
 /* This is the mask for the rest of the data in a word read from a
  * SHT_GNU_versym section.
  */
+#ifndef VERSYM_VERSION
 #define VERSYM_VERSION	0x7fff
+#endif
+
+#ifndef SHT_GNU_versym
+#define SHT_GNU_versym	0x6fffffff
+#endif
+
+#ifndef SHT_GNU_verdef
+#define SHT_GNU_verdef	0x6ffffffd
+#endif
 
 int elf_open(const char *binary_path, struct elf_fd *elf_fd)
 {

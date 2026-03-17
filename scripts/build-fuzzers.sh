@@ -36,51 +36,73 @@ if [[ "$SANITIZER" == undefined ]]; then
 fi
 
 export SKIP_LIBELF_REBUILD=${SKIP_LIBELF_REBUILD:=''}
+export USE_ELFTOOLCHAIN=${USE_ELFTOOLCHAIN:=''}
 
-# Ideally libbelf should be built using release tarballs available
-# at https://sourceware.org/elfutils/ftp/. Unfortunately sometimes they
-# fail to compile (for example, elfutils-0.185 fails to compile with LDFLAGS enabled
-# due to https://bugs.gentoo.org/794601) so let's just point the script to
-# commits referring to versions of libelf that actually can be built
-if [[ ! -e elfutils || "$SKIP_LIBELF_REBUILD" == "" ]]; then
-    rm -rf elfutils
-    git clone https://sourceware.org/git/elfutils.git
-    (
-        cd elfutils
-        git checkout 67a187d4c1790058fc7fd218317851cb68bb087c
-        git log --oneline -1
+if [[ -n "$USE_ELFTOOLCHAIN" ]]; then
+    # Build elftoolchain's libelf (BSD-licensed) for fully static builds
+    ELFTOOLCHAIN_PREFIX="$(pwd)/elftoolchain-install"
+    if [[ ! -f "$ELFTOOLCHAIN_PREFIX/lib/libelf.a" ]]; then
+        ./scripts/build_elftoolchain.sh "$ELFTOOLCHAIN_PREFIX"
+    fi
 
-        # ASan isn't compatible with -Wl,--no-undefined: https://github.com/google/sanitizers/issues/380
-        sed -i 's/^\(NO_UNDEFINED=\).*/\1/' configure.ac
+    make -C src BUILD_STATIC_ONLY=y V=1 clean
+    make -C src -j$(nproc) \
+        CFLAGS="-I$ELFTOOLCHAIN_PREFIX/include $CFLAGS" \
+        BUILD_STATIC_ONLY=y USE_ELFTOOLCHAIN=1 V=1
 
-        # ASan isn't compatible with -Wl,-z,defs either:
-        # https://clang.llvm.org/docs/AddressSanitizer.html#usage
-        sed -i 's/^\(ZDEFS_LDFLAGS=\).*/\1/' configure.ac
+    $CC $CFLAGS -DUSE_ELFTOOLCHAIN -Isrc -Iinclude -Iinclude/uapi \
+        -I"$ELFTOOLCHAIN_PREFIX/include" \
+        -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 \
+        -c fuzz/bpf-object-fuzzer.c -o bpf-object-fuzzer.o
+    $CXX $CXXFLAGS $LIB_FUZZING_ENGINE bpf-object-fuzzer.o \
+        src/libbpf.a "$ELFTOOLCHAIN_PREFIX/lib/libelf.a" \
+        -l:libz.a -o "$OUT/bpf-object-fuzzer"
+else
+    # Ideally libbelf should be built using release tarballs available
+    # at https://sourceware.org/elfutils/ftp/. Unfortunately sometimes they
+    # fail to compile (for example, elfutils-0.185 fails to compile with LDFLAGS enabled
+    # due to https://bugs.gentoo.org/794601) so let's just point the script to
+    # commits referring to versions of libelf that actually can be built
+    if [[ ! -e elfutils || "$SKIP_LIBELF_REBUILD" == "" ]]; then
+        rm -rf elfutils
+        git clone https://sourceware.org/git/elfutils.git
+        (
+            cd elfutils
+            git checkout 67a187d4c1790058fc7fd218317851cb68bb087c
+            git log --oneline -1
 
-        if [[ "$SANITIZER" == undefined ]]; then
-            # That's basicaly what --enable-sanitize-undefined does to turn off unaligned access
-            # elfutils heavily relies on on i386/x86_64 but without changing compiler flags along the way
-            sed -i 's/\(check_undefined_val\)=[0-9]/\1=1/' configure.ac
-        fi
+            # ASan isn't compatible with -Wl,--no-undefined: https://github.com/google/sanitizers/issues/380
+            sed -i 's/^\(NO_UNDEFINED=\).*/\1/' configure.ac
 
-        autoreconf -i -f
-        if ! ./configure --enable-maintainer-mode --disable-debuginfod --disable-libdebuginfod \
-             --disable-demangler --without-bzlib --without-lzma --without-zstd \
-	     CC="$CC" CFLAGS="-Wno-error $CFLAGS" CXX="$CXX" CXXFLAGS="-Wno-error $CXXFLAGS" LDFLAGS="$CFLAGS"; then
-            cat config.log
-            exit 1
-        fi
+            # ASan isn't compatible with -Wl,-z,defs either:
+            # https://clang.llvm.org/docs/AddressSanitizer.html#usage
+            sed -i 's/^\(ZDEFS_LDFLAGS=\).*/\1/' configure.ac
 
-        make -C config -j$(nproc) V=1
-        make -C lib -j$(nproc) V=1
-        make -C libelf -j$(nproc) V=1
-    )
+            if [[ "$SANITIZER" == undefined ]]; then
+                # That's basicaly what --enable-sanitize-undefined does to turn off unaligned access
+                # elfutils heavily relies on on i386/x86_64 but without changing compiler flags along the way
+                sed -i 's/\(check_undefined_val\)=[0-9]/\1=1/' configure.ac
+            fi
+
+            autoreconf -i -f
+            if ! ./configure --enable-maintainer-mode --disable-debuginfod --disable-libdebuginfod \
+                 --disable-demangler --without-bzlib --without-lzma --without-zstd \
+                 CC="$CC" CFLAGS="-Wno-error $CFLAGS" CXX="$CXX" CXXFLAGS="-Wno-error $CXXFLAGS" LDFLAGS="$CFLAGS"; then
+                cat config.log
+                exit 1
+            fi
+
+            make -C config -j$(nproc) V=1
+            make -C lib -j$(nproc) V=1
+            make -C libelf -j$(nproc) V=1
+        )
+    fi
+
+    make -C src BUILD_STATIC_ONLY=y V=1 clean
+    make -C src -j$(nproc) CFLAGS="-I$(pwd)/elfutils/libelf $CFLAGS" BUILD_STATIC_ONLY=y V=1
+
+    $CC $CFLAGS -Isrc -Iinclude -Iinclude/uapi -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64  -c fuzz/bpf-object-fuzzer.c -o bpf-object-fuzzer.o
+    $CXX $CXXFLAGS $LIB_FUZZING_ENGINE bpf-object-fuzzer.o src/libbpf.a "$(pwd)/elfutils/libelf/libelf.a" -l:libz.a -o "$OUT/bpf-object-fuzzer"
 fi
-
-make -C src BUILD_STATIC_ONLY=y V=1 clean
-make -C src -j$(nproc) CFLAGS="-I$(pwd)/elfutils/libelf $CFLAGS" BUILD_STATIC_ONLY=y V=1
-
-$CC $CFLAGS -Isrc -Iinclude -Iinclude/uapi -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64  -c fuzz/bpf-object-fuzzer.c -o bpf-object-fuzzer.o
-$CXX $CXXFLAGS $LIB_FUZZING_ENGINE bpf-object-fuzzer.o src/libbpf.a "$(pwd)/elfutils/libelf/libelf.a" -l:libz.a -o "$OUT/bpf-object-fuzzer"
 
 cp fuzz/bpf-object-fuzzer_seed_corpus.zip "$OUT"

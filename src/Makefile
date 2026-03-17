@@ -45,11 +45,21 @@ ALL_LDFLAGS += $(LDFLAGS) $(EXTRA_LDFLAGS)
 ifeq ($(shell command -v $(PKG_CONFIG) 2> /dev/null),)
 NO_PKG_CONFIG := 1
 endif
+
+ifdef USE_ELFTOOLCHAIN
+	ALL_CFLAGS += -DUSE_ELFTOOLCHAIN
+ifdef ELFTOOLCHAIN_PREFIX
+	ALL_CFLAGS += -I$(ELFTOOLCHAIN_PREFIX)/include
+	ALL_LDFLAGS += -L$(ELFTOOLCHAIN_PREFIX)/lib
+endif
+	ALL_LDFLAGS += -lelf -lz
+else
 ifdef NO_PKG_CONFIG
 	ALL_LDFLAGS += -lelf -lz
 else
 	ALL_CFLAGS += $(shell $(PKG_CONFIG) --cflags libelf zlib)
 	ALL_LDFLAGS += $(shell $(PKG_CONFIG) --libs libelf zlib)
+endif
 endif
 
 OBJDIR ?= .
@@ -126,6 +136,7 @@ $(OBJDIR)/libbpf.pc: force | $(OBJDIR)
 	$(Q)sed -e "s|@PREFIX@|$(PREFIX)|" \
 		-e "s|@LIBDIR@|$(LIBDIR_PC)|" \
 		-e "s|@VERSION@|$(LIBBPF_VERSION)|" \
+		$(if $(USE_ELFTOOLCHAIN),-e "s|Requires.private: libelf|Requires.private: libelf|",) \
 		< libbpf.pc.template > $@
 
 $(OBJDIR) $(STATIC_OBJDIR) $(SHARED_OBJDIR):
