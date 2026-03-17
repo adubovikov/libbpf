@@ -47,7 +47,7 @@ NO_PKG_CONFIG := 1
 endif
 
 ifdef USE_ELFTOOLCHAIN
-	ALL_CFLAGS += -DUSE_ELFTOOLCHAIN -Wno-macro-redefined
+	ALL_CFLAGS += -DUSE_ELFTOOLCHAIN -Wno-macro-redefined -Wno-typedef-redefinition
 ifdef ELFTOOLCHAIN_PREFIX
 	ALL_CFLAGS += -I$(ELFTOOLCHAIN_PREFIX)/include
 	ALL_LDFLAGS += -L$(ELFTOOLCHAIN_PREFIX)/lib
