@@ -145,6 +145,35 @@ gelf_getverdaux(Elf_Data *data, int offset, GElf_Verdaux *dst)
 	return dst;
 }
 
+typedef struct {
+	Elf64_Word n_namesz;
+	Elf64_Word n_descsz;
+	Elf64_Word n_type;
+} GElf_Nhdr;
+
+static inline size_t
+gelf_getnote(Elf_Data *data, size_t offset, GElf_Nhdr *nhdr,
+	     size_t *name_offset, size_t *desc_offset)
+{
+	size_t align, namesz, descsz;
+
+	if (!data || !nhdr)
+		return 0;
+	if (offset + sizeof(*nhdr) > data->d_size)
+		return 0;
+
+	memcpy(nhdr, (char *)data->d_buf + offset, sizeof(*nhdr));
+
+	namesz = nhdr->n_namesz;
+	descsz = nhdr->n_descsz;
+
+	align = 4; /* ELF note entries are 4-byte aligned */
+	*name_offset = offset + sizeof(*nhdr);
+	*desc_offset = *name_offset + ((namesz + align - 1) & ~(align - 1));
+
+	return *desc_offset + ((descsz + align - 1) & ~(align - 1));
+}
+
 #endif /* USE_ELFTOOLCHAIN */
 
 #define JUMPTABLES_SEC ".jumptables"
